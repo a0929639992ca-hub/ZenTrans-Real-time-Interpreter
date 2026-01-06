@@ -1,0 +1,7 @@
+{
+  "name": "ZenTrans Real-time Interpreter",
+  "description": "A high-performance simultaneous interpreter for Japanese and Traditional Chinese with a floating overlay mode for live streamers.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
