@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -10,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
   <script>
-    // 安全初始化 process.env 避免運行時崩潰
+    // Robust environment shim - 僅初始化結構，不填入空值
     window.process = window.process || {};
     window.process.env = window.process.env || {};
   </script>
@@ -31,6 +30,13 @@
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.05); border-radius: 10px; }
     ::selection { background: #3b82f6; color: white; }
+    
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      75% { transform: translateX(4px); }
+    }
+    .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
   </style>
   <script type="importmap">
   {
