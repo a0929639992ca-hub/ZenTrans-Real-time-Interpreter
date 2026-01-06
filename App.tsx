@@ -9,8 +9,8 @@ import TranscriptList from './components/TranscriptList';
 import FloatingOverlay from './components/FloatingOverlay';
 
 /**
- * Main application component for ZenTrans Pro.
- * Handles Gemini Live API session management, audio streaming, and transcription.
+ * ZenTrans Pro: 即時中日翻譯應用程式
+ * 使用 Gemini 2.5 Native Audio API
  */
 const App: React.FC = () => {
   const [isActive, setIsActive] = useState(false);
@@ -26,14 +26,9 @@ const App: React.FC = () => {
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const transcriptionRef = useRef({ input: '', output: '' });
 
-  /**
-   * Stops the current translation session and cleans up resources.
-   */
   const stopSession = useCallback(() => {
     if (sessionRef.current) {
-      try {
-        sessionRef.current.close?.();
-      } catch (e) {}
+      try { sessionRef.current.close(); } catch (e) {}
       sessionRef.current = null;
     }
     if (inputAudioContextRef.current) {
@@ -47,22 +42,18 @@ const App: React.FC = () => {
     setIsActive(false);
   }, []);
 
-  /**
-   * Starts a new Gemini Live session for real-time translation.
-   */
   const startSession = async () => {
     try {
       setError(null);
       
-      // Use process.env.API_KEY directly as required by guidelines
+      // 嚴格從 process.env.API_KEY 讀取 (由 index.tsx 負責注入)
       const apiKey = process.env.API_KEY;
       
-      if (!apiKey || apiKey.trim() === "") {
-        setError('系統未偵測到 API Key。請確保環境變數已正確設定。');
+      if (!apiKey || apiKey === "") {
+        setError('環境變數缺失：請在 Vercel 設定 VITE_API_KEY 並點擊「Redeploy」。');
         return;
       }
 
-      // Create a fresh GoogleGenAI instance for the connection
       const ai = new GoogleGenAI({ apiKey });
       
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -70,12 +61,11 @@ const App: React.FC = () => {
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      const systemInstruction = `你是一位專業的即時口譯員，專精於日語（日本語）與繁體中文（台灣）。
-      - 若聽到日語，翻譯成繁體中文。
-      - 若聽到繁體中文，翻譯成日語。
-      - 僅輸出翻譯結果，維持高效簡潔。`;
+      const systemInstruction = `你是一位高效的專業即時口譯員。
+      - 聽到日語（日本語）時，請立刻翻譯為繁體中文（台灣）。
+      - 聽到國語/繁體中文時，請立刻翻譯為自然流暢的日語。
+      - 輸出必須簡潔，僅包含翻譯內容。`;
 
-      // Initiate connection to Gemini 2.5 Live
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
@@ -93,21 +83,18 @@ const App: React.FC = () => {
             const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
             const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
             
-            // Stream audio from the microphone to the model
             scriptProcessor.onaudioprocess = (e) => {
-              const inputData = e.inputBuffer.getChannelData(0);
-              const pcmBlob = createBlob(inputData);
-              // CRITICAL: Solely rely on sessionPromise resolves to send data to avoid race conditions
-              sessionPromise.then((session) => {
-                session.sendRealtimeInput({ media: pcmBlob });
-              });
+              if (sessionRef.current) {
+                const inputData = e.inputBuffer.getChannelData(0);
+                const pcmBlob = createBlob(inputData);
+                sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+              }
             };
             
             source.connect(scriptProcessor);
             scriptProcessor.connect(inputAudioContextRef.current!.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
-            // Process audio transcriptions for both input and output
             if (message.serverContent?.inputTranscription) {
               transcriptionRef.current.input += message.serverContent.inputTranscription.text;
             }
@@ -115,7 +102,6 @@ const App: React.FC = () => {
               transcriptionRef.current.output += message.serverContent.outputTranscription.text;
             }
 
-            // Update transcript history when a turn is completed
             if (message.serverContent?.turnComplete) {
               const input = transcriptionRef.current.input;
               const output = transcriptionRef.current.output;
@@ -131,75 +117,51 @@ const App: React.FC = () => {
               transcriptionRef.current = { input: '', output: '' };
             }
 
-            // Handle output audio bytes from the model
             const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
             if (base64Audio && outputAudioContextRef.current) {
-              // Track end of playback queue for gapless audio
-              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputAudioContextRef.current.currentTime);
-              const audioBuffer = await decodeAudioData(
-                decode(base64Audio),
-                outputAudioContextRef.current,
-                24000,
-                1
-              );
-              const source = outputAudioContextRef.current.createBufferSource();
+              const ctx = outputAudioContextRef.current;
+              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
+              const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
+              const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
-              source.connect(outputAudioContextRef.current.destination);
-              source.addEventListener('ended', () => {
-                sourcesRef.current.delete(source);
-              });
+              source.connect(ctx.destination);
               source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current = nextStartTimeRef.current + audioBuffer.duration;
+              nextStartTimeRef.current += audioBuffer.duration;
               sourcesRef.current.add(source);
+              source.onended = () => sourcesRef.current.delete(source);
             }
 
-            // Handle interruption signal to stop all playing audio
             if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach(source => {
-                try { source.stop(); } catch (e) {}
-              });
+              sourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
               sourcesRef.current.clear();
               nextStartTimeRef.current = 0;
             }
           },
           onerror: (e) => {
-            console.error('Live API connection error:', e);
-            setError('發生連線錯誤，請重試。');
+            console.error('API Error:', e);
+            setError('與翻譯伺服器連線失敗。');
             stopSession();
           },
-          onclose: () => {
-            stopSession();
-          }
+          onclose: () => stopSession()
         }
       });
-
+      
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      console.error('Failed to initialize session:', err);
-      setError(`系統啟動失敗: ${err.message || '未知錯誤'}`);
+      setError(`連線失敗: ${err.message || '麥克風權限被拒絕'}`);
       stopSession();
     }
   };
 
-  /**
-   * Toggles the active state of the translation session.
-   */
-  const handleToggle = () => {
-    if (isActive) {
-      stopSession();
-    } else {
-      startSession();
-    }
-  };
+  const handleToggle = () => isActive ? stopSession() : startSession();
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => stopSession();
   }, [stopSession]);
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 font-sans selection:bg-blue-500/30">
-      <div className="max-w-6xl mx-auto px-6 py-10 md:py-16">
+    <div className="min-h-screen bg-[#020617] text-slate-200">
+      <div className="max-w-6xl mx-auto px-6 py-12 md:py-20">
         <Header />
         
         <main className="mt-12 grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -212,27 +174,11 @@ const App: React.FC = () => {
               error={error}
             />
             
-            <div className="glass rounded-3xl p-6 border-white/5 bg-gradient-to-br from-blue-600/5 to-transparent">
-              <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">系統狀態</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-400">連線狀態</span>
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded ${isActive ? 'bg-green-500/10 text-green-500' : 'bg-slate-800 text-slate-500'}`}>
-                    {isActive ? 'ACTIVE' : 'IDLE'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-400">延遲優化</span>
-                  <span className="text-[10px] font-black text-blue-500">Enabled</span>
-                </div>
-              </div>
-            </div>
-            
             <button 
               onClick={() => setIsOverlayOpen(!isOverlayOpen)}
-              className="w-full py-4 rounded-2xl bg-white/[0.02] border border-white/5 text-[10px] font-black uppercase tracking-widest hover:bg-white/[0.05] transition-colors"
+              className="w-full py-4 rounded-2xl bg-white/[0.03] border border-white/5 text-[10px] font-black uppercase tracking-widest hover:bg-white/[0.08] transition-all"
             >
-              {isOverlayOpen ? '關閉懸浮字幕' : '開啟懸浮字幕'}
+              {isOverlayOpen ? '關閉懸浮字幕窗' : '啟動直播字幕模式'}
             </button>
           </div>
           
@@ -248,22 +194,11 @@ const App: React.FC = () => {
           onClose={() => setIsOverlayOpen(false)} 
         />
       )}
-
+      
       <style>{`
-        .glass {
-          background: rgba(255, 255, 255, 0.02);
-          backdrop-filter: blur(20px);
-          -webkit-backdrop-filter: blur(20px);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-4px); }
-          75% { transform: translateX(4px); }
-        }
-        .animate-shake {
-          animation: shake 0.2s cubic-bezier(.36,.07,.19,.97) both;
-        }
+        .glass { background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+        .animate-shake { animation: shake 0.2s cubic-bezier(.36,.07,.19,.97) both; }
       `}</style>
     </div>
   );
