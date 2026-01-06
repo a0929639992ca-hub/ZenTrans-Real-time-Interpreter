@@ -41,10 +41,11 @@ const App: React.FC = () => {
   const startSession = async () => {
     try {
       setError(null);
-      // 確保 API_KEY 存在
       const apiKey = process.env.API_KEY;
-      if (!apiKey) {
-        throw new Error('API Key 未設定');
+      
+      if (!apiKey || apiKey === "") {
+        setError('系統未偵測到 API 金鑰。請確保 Vercel 環境變數中已設定 VITE_API_KEY。');
+        return;
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -106,7 +107,7 @@ const App: React.FC = () => {
                   originalText: input,
                   translatedText: output,
                   type: 'model'
-                }, ...prev].slice(0, 50));
+                }, ...prev].slice(0, 30));
               }
               transcriptionRef.current = { input: '', output: '' };
             }
@@ -132,7 +133,7 @@ const App: React.FC = () => {
             }
           },
           onerror: () => {
-            setError('連線中斷，請重新嘗試。');
+            setError('與伺服器的連線不穩定，正在嘗試恢復...');
             stopSession();
           },
           onclose: () => stopSession()
@@ -141,7 +142,7 @@ const App: React.FC = () => {
       
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      setError(err.message || '初始化失敗，請檢查麥克風權限。');
+      setError('設備權限或連線問題：' + (err.message || '未知錯誤'));
       stopSession();
     }
   };
@@ -149,11 +150,11 @@ const App: React.FC = () => {
   const toggleSession = () => isActive ? stopSession() : startSession();
 
   return (
-    <div className="min-h-screen flex flex-col max-w-5xl mx-auto px-4 sm:px-8 py-8 md:py-12 space-y-8 animate-in fade-in duration-700">
+    <div className="min-h-screen flex flex-col max-w-6xl mx-auto px-6 py-12 space-y-12 animate-in fade-in duration-1000">
       <Header />
       
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        <aside className="lg:col-span-4 space-y-4">
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+        <aside className="lg:col-span-4 space-y-6">
           <Translator 
             isActive={isActive} 
             onToggle={toggleSession}
@@ -164,14 +165,14 @@ const App: React.FC = () => {
           
           <button 
             onClick={() => setIsOverlayOpen(!isOverlayOpen)}
-            className="w-full py-4 px-6 bg-slate-900/50 hover:bg-slate-800 rounded-2xl flex items-center justify-center gap-3 transition-all border border-slate-800 text-slate-400 text-sm font-semibold"
+            className="w-full py-4 px-6 bg-slate-900/30 hover:bg-slate-800/50 rounded-2xl flex items-center justify-center gap-3 transition-all border border-white/5 text-slate-400 text-xs font-bold tracking-widest uppercase"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M3 9h18"/><path d="M15 21V9"/></svg>
-            {isOverlayOpen ? '隱藏字幕窗' : '顯示直播字幕窗'}
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M3 9h18"/><path d="M15 21V9"/></svg>
+            {isOverlayOpen ? '關閉懸浮視窗' : '啟動直播字幕'}
           </button>
         </aside>
         
-        <section className="lg:col-span-8 w-full">
+        <section className="lg:col-span-8">
           <TranscriptList transcripts={transcripts} />
         </section>
       </main>
@@ -183,8 +184,10 @@ const App: React.FC = () => {
         />
       )}
       
-      <footer className="text-center text-slate-700 text-[10px] font-bold tracking-[0.2em] uppercase pt-8">
-        ZenTrans Precise Interpretation Engine
+      <footer className="text-center">
+        <p className="text-slate-800 text-[9px] font-black tracking-[0.3em] uppercase">
+          Powered by Gemini 2.5 Flash native audio • Optimized for streamers
+        </p>
       </footer>
     </div>
   );
