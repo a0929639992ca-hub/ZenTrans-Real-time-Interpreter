@@ -49,8 +49,8 @@ const App: React.FC = () => {
       // 嚴格從 process.env.API_KEY 讀取 (由 index.tsx 負責注入)
       const apiKey = process.env.API_KEY;
       
-      if (!apiKey || apiKey === "") {
-        setError('環境變數缺失：請在 Vercel 設定 VITE_API_KEY 並點擊「Redeploy」。');
+      if (!apiKey || apiKey === "" || apiKey === "undefined") {
+        setError('系統未偵測到 API Key。如果您已在 Vercel 設定 VITE_API_KEY，請務必重新進行「Redeploy」以使設定生效。');
         return;
       }
 
@@ -61,10 +61,10 @@ const App: React.FC = () => {
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      const systemInstruction = `你是一位高效的專業即時口譯員。
-      - 聽到日語（日本語）時，請立刻翻譯為繁體中文（台灣）。
-      - 聽到國語/繁體中文時，請立刻翻譯為自然流暢的日語。
-      - 輸出必須簡潔，僅包含翻譯內容。`;
+      const systemInstruction = `你是一位專業的即時口譯員。
+      - 若聽到日語（日本語），請翻譯為繁體中文（台灣習慣用語）。
+      - 若聽到繁體中文，請翻譯為流暢的日語。
+      - 僅輸出翻譯內容，不要有任何多餘贅詞。`;
 
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -87,7 +87,10 @@ const App: React.FC = () => {
               if (sessionRef.current) {
                 const inputData = e.inputBuffer.getChannelData(0);
                 const pcmBlob = createBlob(inputData);
-                sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                // 透過 promise 確保 session 已建立
+                sessionPromise.then(session => {
+                  session.sendRealtimeInput({ media: pcmBlob });
+                });
               }
             };
             
@@ -138,8 +141,8 @@ const App: React.FC = () => {
             }
           },
           onerror: (e) => {
-            console.error('API Error:', e);
-            setError('與翻譯伺服器連線失敗。');
+            console.error('Session Error:', e);
+            setError('與翻譯伺服器連線中斷。請檢查網路或金鑰權限。');
             stopSession();
           },
           onclose: () => stopSession()
@@ -148,7 +151,7 @@ const App: React.FC = () => {
       
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      setError(`連線失敗: ${err.message || '麥克風權限被拒絕'}`);
+      setError(`啟動失敗: ${err.message || '請確認麥克風權限'}`);
       stopSession();
     }
   };
